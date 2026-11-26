@@ -1,0 +1,23 @@
+name: Dummy job
+on:
+    workflow_call:
+        inputs:
+            label:
+                required: true
+                type: string
+            environment:
+                required: false
+                type: string
+                default: ''
+            fail:
+                required: false
+                type: boolean
+                default: false
+jobs:
+    run:
+        runs-on: ubuntu-latest
+        environment: ${{ inputs.environment }}
+        steps:
+            - run: |
+                  echo "${{ inputs.label }} for $GITHUB_SHA"
+                  test "${{ inputs.fail }}" != true

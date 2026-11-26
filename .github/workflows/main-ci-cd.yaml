@@ -1,0 +1,124 @@
+name: Prod | CI & Deploy & End-to-end Test
+
+on:
+    push:
+        branches:
+            - main
+        paths-ignore:
+            - '.github/workflows/deploy-packages'
+    workflow_dispatch:
+        inputs:
+            skip_stage_tests:
+                description: Fast path - skip the stage tests (the deploy window still applies)
+                type: boolean
+                default: false
+            test_tz:
+                description: TEST ONLY - time zone for the window check
+                type: string
+                default: ''
+            test_fail_stage:
+                description: TEST ONLY - make stage Playwright fail
+                type: boolean
+                default: false
+
+jobs:
+    ci:
+        name: CI
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: CI
+
+    deploy-stage:
+        concurrency: dobby-cdk-stage-deployment
+        name: Stage deployment
+        needs: ci
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: Stage deployment
+            environment: Stage
+
+    playwright-stage:
+        name: Playwright tests stage
+        needs: deploy-stage
+        if: ${{ !inputs.skip_stage_tests }}
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: Playwright tests stage
+            environment: Stage
+            fail: ${{ inputs.test_fail_stage == true }}
+
+    checkly-stage:
+        name: Checkly tests stage
+        needs: deploy-stage
+        if: ${{ !inputs.skip_stage_tests }}
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: Checkly tests stage
+            environment: Stage
+
+    deploy-window:
+        name: Deploy window
+        needs: [playwright-stage, checkly-stage]
+        if: ${{ !failure() && !cancelled() }}
+        runs-on: ubuntu-latest
+        env:
+            TZ: ${{ inputs.test_tz || 'Europe/Berlin' }}
+        outputs:
+            open: ${{ steps.check.outputs.open }}
+        steps:
+            - id: check
+              run: |
+                  day=$(date +%u) time=$(date +%H%M) date=$(date +%m%d)
+                  close=1700; [ "$day" = 5 ] && close=1600
+                  open=false
+                  [ "$day" -le 5 ] && [ "$time" -ge 0900 ] && [ "$time" -lt "$close" ] && [ "$date" -gt 0101 ] && [ "$date" -lt 1224 ] && open=true
+                  echo "open=$open" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
+
+    prod-gate:
+        name: Prod gate
+        needs: deploy-window
+        runs-on: ubuntu-latest
+        environment: ${{ needs.deploy-window.outputs.open != 'true' && 'Production-Approval' || '' }}
+        permissions:
+            contents: read
+        outputs:
+            main: ${{ steps.main.outputs.sha }}
+        steps:
+            - id: main
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: echo "sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" >> "$GITHUB_OUTPUT"
+
+    deploy-prod:
+        concurrency: dobby-cdk-prod-deployment
+        name: Prod deployment
+        needs: prod-gate
+        if: ${{ needs.prod-gate.outputs.main == github.sha }}
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: Prod deployment
+            environment: Production
+
+    lighthouse:
+        name: lighthouse integration
+        needs: deploy-prod
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: lighthouse integration
+
+    playwright-prod:
+        name: Playwright tests prod
+        needs: deploy-prod
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: Playwright tests prod
+            environment: Production
+
+    checkly-prod:
+        name: Checkly tests prod
+        needs: deploy-prod
+        uses: ./.github/workflows/dummy.yaml
+        with:
+            label: Checkly tests prod
+            environment: Production
+
