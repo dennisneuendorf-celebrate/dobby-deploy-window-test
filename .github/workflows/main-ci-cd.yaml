@@ -77,6 +77,7 @@ jobs:
     prod-gate:
         name: Prod gate
         needs: deploy-window
+        if: ${{ !failure() && !cancelled() }}
         runs-on: ubuntu-latest
         environment: ${{ needs.deploy-window.outputs.open != 'true' && 'Production-Approval' || '' }}
         permissions:
@@ -93,7 +94,7 @@ jobs:
         concurrency: dobby-cdk-prod-deployment
         name: Prod deployment
         needs: prod-gate
-        if: ${{ needs.prod-gate.outputs.main == github.sha }}
+        if: ${{ !failure() && !cancelled() && needs.prod-gate.outputs.main == github.sha }}
         uses: ./.github/workflows/dummy.yaml
         with:
             label: Prod deployment
@@ -102,6 +103,7 @@ jobs:
     lighthouse:
         name: lighthouse integration
         needs: deploy-prod
+        if: ${{ !cancelled() && needs.deploy-prod.result == 'success' }}
         uses: ./.github/workflows/dummy.yaml
         with:
             label: lighthouse integration
@@ -109,6 +111,7 @@ jobs:
     playwright-prod:
         name: Playwright tests prod
         needs: deploy-prod
+        if: ${{ !cancelled() && needs.deploy-prod.result == 'success' }}
         uses: ./.github/workflows/dummy.yaml
         with:
             label: Playwright tests prod
@@ -117,6 +120,7 @@ jobs:
     checkly-prod:
         name: Checkly tests prod
         needs: deploy-prod
+        if: ${{ !cancelled() && needs.deploy-prod.result == 'success' }}
         uses: ./.github/workflows/dummy.yaml
         with:
             label: Checkly tests prod
