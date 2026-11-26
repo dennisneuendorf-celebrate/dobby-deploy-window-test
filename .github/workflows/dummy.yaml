@@ -20,4 +20,4 @@ jobs:
         steps:
             - run: |
                   echo "${{ inputs.label }} for $GITHUB_SHA"
-                  test "${{ inputs.fail }}" != true
+                  test "${{ inputs.fail }}" != true || [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]
